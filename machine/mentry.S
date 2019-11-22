@@ -6,6 +6,7 @@
 
   .data
   .align 6
+  .global trap_table
 trap_table:
 #define BAD_TRAP_VECTOR 0
   .dc.a bad_trap
@@ -64,7 +65,9 @@ trap_vector:
   LOAD a0, 10*REGBYTES(sp)
   LOAD a1, 11*REGBYTES(sp)
   csrrw sp, mscratch, sp
-  mret
+
+  jr ra
+  #mret
 
 1:
   # Is it an IPI?
@@ -192,7 +195,9 @@ restore_regs:
   LOAD t5,30*REGBYTES(sp)
   LOAD t6,31*REGBYTES(sp)
   LOAD sp, 2*REGBYTES(sp)
-  mret
+
+  jr ra
+  #mret
 
 .Ltrap_from_machine_mode:
   csrr sp, mscratch
