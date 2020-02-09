@@ -235,7 +235,7 @@
 #else
 
 #define	ptr_to_pcccap(addr) (addr)
-#define	ptr_to_ddccap(addr) (addr)
+#define	ptr_to_ddccap(addr) ((void*)(addr))
 
 #endif
 

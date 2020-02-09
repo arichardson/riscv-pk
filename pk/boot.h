@@ -11,7 +11,7 @@ typedef struct {
   int phent;
   int phnum;
   int is_supervisor;
-  size_t phdr;
+  void* phdr;
   size_t phdr_size;
   size_t bias;
   size_t entry;
@@ -19,7 +19,7 @@ typedef struct {
   size_t brk;
   size_t brk_max;
   size_t mmap_max;
-  size_t stack_top;
+  void* stack_top;
   uint64_t time0;
   uint64_t cycle0;
   uint64_t instret0;

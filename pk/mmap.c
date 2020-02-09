@@ -22,7 +22,7 @@ typedef struct {
 static spinlock_t vm_lock = SPINLOCK_INIT;
 static vmr_t* vmrs;
 
-uintptr_t first_free_paddr;
+addr_t first_free_paddr;
 static uintptr_t first_free_page;
 static size_t next_free_page;
 static size_t free_pages;
@@ -76,12 +76,12 @@ static void __vmr_decref(vmr_t* v, unsigned dec)
   }
 }
 
-static size_t pte_ppn(pte_t pte)
+static addr_t pte_ppn(pte_t pte)
 {
   return pte >> PTE_PPN_SHIFT;
 }
 
-static uintptr_t ppn(uintptr_t addr)
+static addr_t ppn(addr_t addr)
 {
   return addr >> RISCV_PGSHIFT;
 }
@@ -107,7 +107,7 @@ static pte_t* __walk_internal(uintptr_t addr, int create)
     size_t idx = pt_idx(addr, i);
     if (unlikely(!(t[idx] & PTE_V)))
       return create ? __continue_walk_create(addr, &t[idx]) : 0;
-    t = (pte_t*)(pte_ppn(t[idx]) << RISCV_PGSHIFT);
+    t = (pte_t*)ptr_to_ddccap((uintptr_t)(pte_ppn(t[idx]) << RISCV_PGSHIFT));
   }
   return &t[pt_idx(addr, 0)];
 }
@@ -163,9 +163,14 @@ int __valid_user_range(uintptr_t vaddr, size_t len)
   return vaddr + len <= current.mmap_max;
 }
 
-static int __handle_page_fault(uintptr_t vaddr, int prot)
+static inline vmr_t* pte_to_vmr(pte_t pte)
 {
-  uintptr_t vpn = vaddr >> RISCV_PGSHIFT;
+  return (vmr_t*)ptr_to_ddccap((uintptr_t)pte);
+}
+
+static int __handle_page_fault(addr_t vaddr, int prot)
+{
+  addr_t vpn = vaddr >> RISCV_PGSHIFT;
   vaddr = vpn << RISCV_PGSHIFT;
 
   pte_t* pte = __walk(vaddr);
@@ -174,21 +179,21 @@ static int __handle_page_fault(uintptr_t vaddr, int prot)
     return -1;
   else if (!(*pte & PTE_V))
   {
-    uintptr_t ppn = vpn + (first_free_paddr / RISCV_PGSIZE);
+    addr_t ppn = vpn + (first_free_paddr / RISCV_PGSIZE);
 
-    vmr_t* v = (vmr_t*)*pte;
+    vmr_t* v = pte_to_vmr(*pte);
     *pte = pte_create(ppn, prot_to_type(PROT_READ|PROT_WRITE, 0));
     flush_tlb();
     if (v->file)
     {
       size_t flen = MIN(RISCV_PGSIZE, v->length - (vaddr - v->addr));
-      ssize_t ret = file_pread(v->file, (void*)vaddr, flen, vaddr - v->addr + v->offset);
+      ssize_t ret = file_pread(v->file, ptr_to_ddccap((uintptr_t)vaddr), flen, vaddr - v->addr + v->offset);
       kassert(ret > 0);
       if (ret < RISCV_PGSIZE)
-        memset((void*)vaddr + ret, 0, RISCV_PGSIZE - ret);
+        memset(ptr_to_ddccap((uintptr_t)(vaddr + ret)), 0, RISCV_PGSIZE - ret);
     }
     else
-      memset((void*)vaddr, 0, RISCV_PGSIZE);
+      memset(ptr_to_ddccap((uintptr_t)vaddr), 0, RISCV_PGSIZE);
     __vmr_decref(v, 1);
     *pte = pte_create(ppn, prot_to_type(v->prot, 1));
   }
@@ -218,7 +223,7 @@ static void __do_munmap(uintptr_t addr, size_t len)
       continue;
 
     if (!(*pte & PTE_V))
-      __vmr_decref((vmr_t*)*pte, 1);
+      __vmr_decref(pte_to_vmr(*pte), 1);
 
     *pte = 0;
   }
@@ -290,7 +295,7 @@ uintptr_t do_mmap(uintptr_t addr, size_t length, int prot, int flags, int fd, of
   return addr;
 }
 
-uintptr_t __do_brk(size_t addr)
+uintptr_t __do_brk(uintptr_t addr)
 {
   uintptr_t newbrk = addr;
   if (addr < current.brk_min)
@@ -311,7 +316,7 @@ uintptr_t __do_brk(size_t addr)
   return newbrk;
 }
 
-uintptr_t do_brk(size_t addr)
+uintptr_t do_brk(uintptr_t addr)
 {
   spinlock_lock(&vm_lock);
     addr = __do_brk(addr);
@@ -341,7 +346,7 @@ uintptr_t do_mprotect(uintptr_t addr, size_t length, int prot)
       }
   
       if (!(*pte & PTE_V)) {
-        vmr_t* v = (vmr_t*)*pte;
+        vmr_t* v = pte_to_vmr(*pte);
         if((v->prot ^ prot) & ~v->prot){
           //TODO:look at file to find perms
           res = -EACCES;
@@ -366,11 +371,11 @@ uintptr_t do_mprotect(uintptr_t addr, size_t length, int prot)
   return res;
 }
 
-void __map_kernel_range(uintptr_t vaddr, uintptr_t paddr, size_t len, int prot)
+void __map_kernel_range(addr_t vaddr, addr_t paddr, size_t len, int prot)
 {
-  uintptr_t n = ROUNDUP(len, RISCV_PGSIZE) / RISCV_PGSIZE;
-  uintptr_t offset = paddr - vaddr;
-  for (uintptr_t a = vaddr, i = 0; i < n; i++, a += RISCV_PGSIZE)
+  addr_t n = ROUNDUP(len, RISCV_PGSIZE) / RISCV_PGSIZE;
+  addr_t offset = paddr - vaddr;
+  for (addr_t a = vaddr, i = 0; i < n; i++, a += RISCV_PGSIZE)
   {
     pte_t* pte = __walk_create(a);
     kassert(pte);
@@ -408,12 +413,12 @@ uintptr_t pk_vm_init()
     MIN(DRAM_BASE, mem_size - (first_free_paddr - DRAM_BASE));
 
   size_t stack_size = MIN(mem_pages >> 5, 2048) * RISCV_PGSIZE;
-  size_t stack_bottom = __do_mmap(current.mmap_max - stack_size, stack_size, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, 0, 0);
+  uintptr_t stack_bottom = __do_mmap(current.mmap_max - stack_size, stack_size, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, 0, 0);
   kassert(stack_bottom != (uintptr_t)-1);
-  current.stack_top = stack_bottom + stack_size;
+  current.stack_top = (void*)(stack_bottom + stack_size);
 
   flush_tlb();
-  write_csr(satp, ((uintptr_t)root_page_table >> RISCV_PGSHIFT) | SATP_MODE_CHOICE);
+  write_csr(satp, ((addr_t)root_page_table >> RISCV_PGSHIFT) | SATP_MODE_CHOICE);
 
   uintptr_t kernel_stack_top = __page_alloc() + RISCV_PGSIZE;
   return kernel_stack_top;

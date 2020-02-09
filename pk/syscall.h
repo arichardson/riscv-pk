@@ -66,7 +66,7 @@
 #define SYS_time 1062
 
 #define IS_ERR_VALUE(x) ((unsigned long)(x) >= (unsigned long)-4096)
-#define ERR_PTR(x) ((void*)(long)(x))
+#define ERR_PTR(x) ((void*)(uintptr_t)(long)(x))
 #define PTR_ERR(x) ((long)(x))
 
 #undef AT_FDCWD

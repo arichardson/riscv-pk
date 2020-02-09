@@ -405,7 +405,7 @@ long sys_clock_gettime(int clk_id, long *loc)
   return 0;
 }
 
-ssize_t sys_writev(int fd, const long* iov, int cnt)
+ssize_t sys_writev(int fd, const uintptr_t* iov, int cnt)
 {
   ssize_t ret = 0;
   for (int i = 0; i < cnt; i++)

@@ -57,14 +57,14 @@ void load_elf(const char* fn, elf_info* info)
   Elf_Phdr* ph = (typeof(ph))info->phdr;
 
   // compute highest VA in ELF
-  uintptr_t max_vaddr = 0;
+  addr_t max_vaddr = 0;
   for (int i = 0; i < eh.e_phnum; i++)
     if (ph[i].p_type == PT_LOAD && ph[i].p_memsz)
       max_vaddr = MAX(max_vaddr, ph[i].p_vaddr + ph[i].p_memsz);
   max_vaddr = ROUNDUP(max_vaddr, RISCV_PGSIZE);
 
   // don't load dynamic linker at 0, else we can't catch NULL pointer derefs
-  uintptr_t bias = 0;
+  size_t bias = 0;
   if (eh.e_type == ET_DYN)
     bias = RISCV_PGSIZE;
 
@@ -75,15 +75,15 @@ void load_elf(const char* fn, elf_info* info)
       panic("not a statically linked ELF program");
     }
     if(ph[i].p_type == PT_LOAD && ph[i].p_memsz) {
-      uintptr_t prepad = ph[i].p_vaddr % RISCV_PGSIZE;
-      uintptr_t vaddr = ph[i].p_vaddr + bias;
+      size_t prepad = ph[i].p_vaddr % RISCV_PGSIZE;
+      addr_t vaddr = ph[i].p_vaddr + bias;
       if (vaddr + ph[i].p_memsz > info->brk_min)
         info->brk_min = vaddr + ph[i].p_memsz;
       int flags2 = flags | (prepad ? MAP_POPULATE : 0);
       int prot = get_prot(ph[i].p_flags);
       if (__do_mmap(vaddr - prepad, ph[i].p_filesz + prepad, prot | PROT_WRITE, flags2, file, ph[i].p_offset - prepad) != vaddr - prepad)
         goto fail;
-      memset((void*)vaddr - prepad, 0, prepad);
+      memset(ptr_to_ddccap((uintptr_t)vaddr - prepad), 0, prepad);
       if (!(prot & PROT_WRITE))
         if (do_mprotect(vaddr - prepad, ph[i].p_filesz + prepad, prot))
           goto fail;
