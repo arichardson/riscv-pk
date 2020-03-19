@@ -133,9 +133,11 @@ void boot_other_hart(uintptr_t unused __attribute__((unused)))
   }
 
 #ifdef BBL_BOOT_MACHINE
+  printm("Hart %d: about to enter machine mode at %p\n", hartid, entry);
   enter_machine_mode(entry, hartid, dtb_output());
 #else /* Run bbl in supervisor mode */
   protect_memory();
+  printm("Hart %d: about to enter supervisor mode at %p\n", hartid, entry);
   enter_supervisor_mode(entry, hartid, dtb_output());
 #endif
 }
